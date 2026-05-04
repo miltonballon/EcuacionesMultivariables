@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ecuaciones Multivariables</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --panel: rgba(30, 41, 59, 0.8);
+            --text: #f8fafc;
+            --accent: #38bdf8;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .ui-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            pointer-events: none;
+            width: 300px;
+        }
+
+        .panel {
+            background: var(--panel);
+            backdrop-filter: blur(8px);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            pointer-events: auto;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            font-size: 1.2rem;
+            margin: 0 0 15px 0;
+            color: var(--accent);
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        select {
+            width: 100%;
+            padding: 8px;
+            background: #334155;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .data-display {
+            font-family: monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px;
+            background: var(--panel);
+            border-radius: 8px;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+
+<div id="container">
+    <div class="ui-overlay">
+        <div class="panel">
+            <h1>Superficies 3D</h1>
+            
+            <div class="control-group">
+                <label for="functionSelect">Función $z = f(x, y)$</label>
+                <select id="functionSelect">
+                    <option value="paraboloid">Paraboloide: a·x² + b·y²</option>
+                    <option value="saddle">Silla de Montar: a·x² - b·y²</option>
+                    <option value="waves">Ondas: a·sin(x) + b·cos(y)</option>
+                    <option value="ripple">Goteo: a·cos(x² + y²)</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label id="labelA">Parámetro a: 1.0</label>
+                <input type="range" id="inputA" min="-2" max="2" step="0.1" value="1">
+            </div>
+
+            <div class="control-group">
+                <label id="labelB">Parámetro b: 1.0</label>
+                <input type="range" id="inputB" min="-2" max="2" step="0.1" value="1">
+            </div>
+        </div>
+
+        <div class="panel data-display" id="mathDisplay">
+            <!-- Cálculos dinámicos -->
+        </div>
+    </div>
+
+    <div class="legend">
+        Usa el ratón para rotar y hacer zoom.
+    </div>
+</div>
+
+<script>
+    // Configuración de la escena
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('container').appendChild(renderer.domElement);
+
+    // Controles
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    camera.position.set(5, 5, 5);
+    controls.update();
+
+    // Iluminación
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    scene.add(ambientLight);
+    const pointLight = new THREE.PointLight(0xffffff, 0.8);
+    pointLight.position.set(10, 10, 10);
+    scene.add(pointLight);
+
+    // Ejes
+    const axesHelper = new THREE.AxesHelper(5);
+    scene.add(axesHelper);
+
+    // Geometría de la superficie
+    const size = 10;
+    const segments = 64;
+    const geometry = new THREE.PlaneBufferGeometry(size, size, segments, segments);
+    geometry.rotateX(-Math.PI / 2); // Orientar plano horizontalmente
+
+    const material = new THREE.MeshPhongMaterial({
+        color: 0x38bdf8,
+        wireframe: true,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.8
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
+
+    // Estado de la aplicación
+    const state = {
+        funcType: 'paraboloid',
+        a: 1.0,
+        b: 1.0
+    };
+
+    // Funciones matemáticas
+    const functions = {
+        paraboloid: (x, y, a, b) => a * (x * x) / 4 + b * (y * y) / 4,
+        saddle: (x, y, a, b) => a * (x * x) / 4 - b * (y * y) / 4,
+        waves: (x, y, a, b) => a * Math.sin(x) + b * Math.cos(y),
+        ripple: (x, y, a, b) => a * Math.cos((x * x + y * y) * b * 0.2)
+    };
+
+    function updateSurface() {
+        const positions = geometry.attributes.position.array;
+        const fn = functions[state.funcType];
+
+        for (let i = 0; i <= segments; i++) {
+            for (let j = 0; j <= segments; j++) {
+                const index = (i * (segments + 1) + j) * 3;
+                const x = positions[index];
+                const y = positions[index + 2]; // El plano rotado usa z para la altura visual, pero aquí es la coordenada y matemática
+                
+                positions[index + 1] = fn(x, y, state.a, state.b);
+            }
+        }
+        geometry.attributes.position.needsUpdate = true;
+        updateMathText();
+    }
+
+    function updateMathText() {
+        const display = document.getElementById('mathDisplay');
+        let eq = "";
+        let derivX = "";
+        let derivY = "";
+
+        switch(state.funcType) {
+            case 'paraboloid':
+                eq = `f(x,y) = ${state.a.toFixed(1)}x²/4 + ${state.b.toFixed(1)}y²/4`;
+                derivX = `∂f/∂x = ${state.a.toFixed(1)}x/2`;
+                derivY = `∂f/∂y = ${state.b.toFixed(1)}y/2`;
+                break;
+            case 'saddle':
+                eq = `f(x,y) = ${state.a.toFixed(1)}x²/4 - ${state.b.toFixed(1)}y²/4`;
+                derivX = `∂f/∂x = ${state.a.toFixed(1)}x/2`;
+                derivY = `∂f/∂y = -${state.b.toFixed(1)}y/2`;
+                break;
+            case 'waves':
+                eq = `f(x,y) = ${state.a.toFixed(1)}sin(x) + ${state.b.toFixed(1)}cos(y)`;
+                derivX = `∂f/∂x = ${state.a.toFixed(1)}cos(x)`;
+                derivY = `∂f/∂y = -${state.b.toFixed(1)}sin(y)`;
+                break;
+            case 'ripple':
+                eq = `f(x,y) = ${state.a.toFixed(1)}cos(${state.b.toFixed(1)}(x²+y²)/5)`;
+                derivX = "Gradiente circular";
+                derivY = "Simetría radial";
+                break;
+        }
+
+        display.innerHTML = `
+            <div><strong>Ecuación:</strong><br>${eq}</div>
+            <div style="margin-top:10px"><strong>Derivadas Parciales:</strong><br>${derivX}<br>${derivY}</div>
+        `;
+    }
+
+    // Eventos
+    document.getElementById('functionSelect').addEventListener('change', (e) => {
+        state.funcType = e.target.value;
+        updateSurface();
+    });
+
+    document.getElementById('inputA').addEventListener('input', (e) => {
+        state.a = parseFloat(e.target.value);
+        document.getElementById('labelA').innerText = `Parámetro a: ${state.a.toFixed(1)}`;
+        updateSurface();
+    });
+
+    document.getElementById('inputB').addEventListener('input', (e) => {
+        state.b = parseFloat(e.target.value);
+        document.getElementById('labelB').innerText = `Parámetro b: ${state.b.toFixed(1)}`;
+        updateSurface();
+    });
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Bucle de renderizado
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+    }
+
+    // Inicialización
+    window.onload = () => {
+        updateSurface();
+        animate();
+    };
+</script>
+
+</body>
+</html>
